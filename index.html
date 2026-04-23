@@ -1,7 +1,6 @@
 <canvas id="game"></canvas>
 
 <script type="module">
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -19,195 +18,184 @@ const db = getFirestore(app);
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-// ===== PLAYER ID FIXO =====
-let playerId = localStorage.getItem("playerId");
-
-if(!playerId){
-  playerId = Math.random().toString(36).substr(2, 9);
-  localStorage.setItem("playerId", playerId);
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 }
+window.addEventListener("resize", resize);
+resize();
 
-// ===== PLAYER =====
+// ===== PLAYER ID =====
+let playerId = localStorage.getItem("playerId") || Math.random().toString(36).substr(2, 9);
+localStorage.setItem("playerId", playerId);
+
+// ===== PLAYER OBJECT =====
 let player = {
-  x: Math.random()*500+100,
-  y: Math.random()*300+100,
+  x: Math.random() * 500 + 100,
+  y: Math.random() * 300 + 100,
   targetX: 0,
   targetY: 0,
   speed: 3,
-  color: ["red","blue","green","yellow"][Math.floor(Math.random()*4)],
+  color: ["#ff4444", "#4444ff", "#44ff44", "#ffff44"][Math.floor(Math.random() * 4)],
   hp: 100,
   lastUpdate: Date.now()
 };
-
 player.targetX = player.x;
 player.targetY = player.y;
 
 let players = {};
 let bullets = [];
 
-// ===== INPUT (MOBILE + DESKTOP) =====
+// ===== INPUTS =====
 canvas.addEventListener("click", setTarget);
-
-canvas.addEventListener("touchstart", (e)=>{
+canvas.addEventListener("touchstart", (e) => {
   const t = e.touches[0];
   setTarget({ clientX: t.clientX, clientY: t.clientY });
 });
 
-function setTarget(e){
+function setTarget(e) {
   player.targetX = e.clientX;
   player.targetY = e.clientY;
 }
 
-// ===== TIRO =====
 canvas.addEventListener("dblclick", shoot);
-
-function shoot(){
+function shoot() {
   bullets.push({
     x: player.x,
     y: player.y,
-    dx: (Math.random()-0.5)*8,
-    dy: (Math.random()-0.5)*8,
-    owner: playerId
+    dx: (player.targetX - player.x) / 20 || 5,
+    dy: (player.targetY - player.y) / 20 || 0,
+    owner: playerId,
+    hit: false
   });
 }
 
-// ===== FIREBASE =====
-async function updatePlayer(){
+// ===== FIREBASE SYNC & CLEANUP =====
+async function updatePlayer() {
   player.lastUpdate = Date.now();
   await setDoc(doc(db, "players", playerId), player);
 }
 
-window.addEventListener("beforeunload", ()=>{
-  deleteDoc(doc(db, "players", playerId));
-});
-
-onSnapshot(collection(db, "players"), (snapshot)=>{
-  players = {};
-  snapshot.forEach(doc=>{
-    players[doc.id] = doc.data();
-  });
-});
-
-// ===== COMBATE =====
-function checkHits(){
-  bullets.forEach(b => {
-    for(let id in players){
-      if(id === b.owner) continue;
-
-      let p = players[id];
-
-      let dx = p.x - b.x;
-      let dy = p.y - b.y;
-      let dist = Math.sqrt(dx*dx + dy*dy);
-
-      if(dist < 10){
-        p.hp -= 10;
-        setDoc(doc(db, "players", id), p);
-        b.hit = true;
-      }
+// Limpeza de fantasmas (Deleta do banco players inativos por mais de 5s)
+async function cleanGhosts() {
+  for (let id in players) {
+    if (id === playerId) continue;
+    let p = players[id];
+    if (!p.lastUpdate || Date.now() - p.lastUpdate > 5000) {
+      try {
+        await deleteDoc(doc(db, "players", id));
+      } catch (e) { console.error("Erro ao limpar ghost:", e); }
     }
-  });
-
-  bullets = bullets.filter(b => !b.hit);
-}
-
-function checkDeath(){
-  if(player.hp <= 0){
-    player.hp = 100;
-    player.x = Math.random()*500+100;
-    player.y = Math.random()*300+100;
   }
 }
+setInterval(cleanGhosts, 4000);
 
-// ===== UPDATE =====
-function update(){
+onSnapshot(collection(db, "players"), (snapshot) => {
+  let activePlayers = {};
+  snapshot.forEach(doc => {
+    activePlayers[doc.id] = doc.data();
+  });
+  players = activePlayers;
+});
 
-  // movimento suave
+// ===== GAME LOGIC =====
+function update() {
   let dx = player.targetX - player.x;
   let dy = player.targetY - player.y;
-  let dist = Math.sqrt(dx*dx + dy*dy);
+  let dist = Math.sqrt(dx * dx + dy * dy);
 
-  if(dist > 1){
-    player.x += (dx/dist) * player.speed;
-    player.y += (dy/dist) * player.speed;
+  if (dist > 1) {
+    player.x += (dx / dist) * player.speed;
+    player.y += (dy / dist) * player.speed;
   }
 
-  bullets.forEach(b=>{
+  bullets.forEach(b => {
     b.x += b.dx;
     b.y += b.dy;
   });
 
-  checkHits();
-  checkDeath();
+  // Check Hits
+  bullets.forEach(b => {
+    for (let id in players) {
+      if (id === b.owner) continue;
+      let p = players[id];
+      let dist = Math.hypot(p.x - b.x, p.y - b.y);
+      if (dist < 10) {
+        b.hit = true;
+        if (id === playerId) player.hp -= 2; // Dano local
+      }
+    }
+  });
+  bullets = bullets.filter(b => !b.hit);
+
+  if (player.hp <= 0) {
+    player.hp = 100;
+    player.x = 100; player.y = 100;
+  }
 
   updatePlayer();
 }
 
-// ===== DRAW =====
-function draw(){
+// ===== RENDER =====
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 1. CHÃO / ARENA
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Grade de fundo (opcional para referência visual)
+  ctx.strokeStyle = "#333";
+  for(let i=0; i<canvas.width; i+=50) {
+    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+  }
 
-  // MAPA
-  ctx.fillStyle="#222";
-  ctx.fillRect(50,50,canvas.width-100,canvas.height-100);
-
-  // BASES
-  ctx.fillStyle="blue";
-  ctx.fillRect(60,canvas.height/2-30,20,60);
-
-  ctx.fillStyle="red";
-  ctx.fillRect(canvas.width-80,canvas.height/2-30,20,60);
-
-  // PLAYERS
-  for(let id in players){
+  // 2. OUTROS PLAYERS
+  for (let id in players) {
+    if (id === playerId) continue;
     let p = players[id];
-
-    if(Date.now() - p.lastUpdate > 3000) continue;
+    
+    // Filtro de tempo para não desenhar fantasmas no canvas
+    if (!p.lastUpdate || Date.now() - p.lastUpdate > 2000) continue;
 
     ctx.fillStyle = p.color;
     ctx.beginPath();
-    ctx.arc(p.x,p.y,6,0,Math.PI*2);
+    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // PLAYER LOCAL (garantia)
+  // 3. PLAYER LOCAL
   ctx.fillStyle = "white";
   ctx.beginPath();
-  ctx.arc(player.x, player.y, 7, 0, Math.PI*2);
+  ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
   ctx.fill();
 
-  // BULLETS
-  ctx.fillStyle="white";
-  bullets.forEach(b=>{
-    ctx.fillRect(b.x,b.y,3,3);
-  });
+  // 4. TIROS
+  ctx.fillStyle = "#fff";
+  bullets.forEach(b => ctx.fillRect(b.x, b.y, 4, 4));
 
-  // FOG (ajustado)
+  // 5. FOG OF WAR (SISTEMA DE MÁSCARA)
   ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.8)"; // Escuridão
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
+  // Recorta o círculo de visão
   ctx.globalCompositeOperation = "destination-out";
-
   ctx.beginPath();
-  ctx.arc(player.x, player.y, 300, 0, Math.PI*2);
+  ctx.arc(player.x, player.y, 150, 0, Math.PI * 2); // Raio de visão: 150
   ctx.fill();
-
   ctx.restore();
 }
 
-// ===== LOOP =====
-function loop(){
+function loop() {
   update();
   draw();
   requestAnimationFrame(loop);
 }
-
 loop();
 
 </script>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; }
+  canvas { display: block; touch-action: none; }
+</style>
