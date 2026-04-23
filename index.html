@@ -1,15 +1,15 @@
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-  canvas { display: block; }
-  #ui { position: fixed; top: 15px; left: 15px; color: #f00; pointer-events: none; z-index: 10; }
-  .bar { width: 200px; height: 10px; background: #333; border: 1px solid #444; }
-  #hp-fill { width: 100%; height: 100%; background: #f00; transition: width 0.1s; }
+  body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
+  canvas { display: block; background: #000; }
+  #ui { position: fixed; top: 15px; left: 15px; color: #0f0; pointer-events: none; z-index: 10; }
+  .bar { width: 200px; height: 10px; background: #333; }
+  #hp-fill { width: 100%; height: 100%; background: #f00; }
 </style>
 
 <div id="ui">
-  <div>SISTEMA DE ALERTA: INVASÃO</div>
+  <div>SISTEMA DE TESTE: BALAS</div>
   <div class="bar"><div id="hp-fill"></div></div>
-  <div id="sc" style="color: #0ff; margin-top: 5px;">DATA: 0</div>
+  <div id="sc">SCORE: 0</div>
 </div>
 <canvas id="game"></canvas>
 
@@ -24,12 +24,10 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// ===== ESTADO =====
 let player = { x: window.innerWidth/2, y: window.innerHeight/2, speed: 5, radius: 10, hp: 100, score: 0 };
 let enemies = [];
 let pBullets = []; 
 let eBullets = []; 
-let hitFlash = 0; // Feedback de dano
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
 let pCooldown = 0;
@@ -41,122 +39,113 @@ window.onmousedown = () => mouse.down = true;
 window.onmouseup = () => mouse.down = false;
 
 function spawn() {
-  if (enemies.length < 6) {
+  if (enemies.length < 5) {
     enemies.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      hp: 30, radius: 12, speed: 1.8, cooldown: 30 // TESTE EXTREMO: Tiros rápidos
+      hp: 30, radius: 12, speed: 2, cooldown: 40 // Inimigo atira rápido
     });
   }
 }
 setInterval(spawn, 2000);
 
 function update() {
-  // Movimento
+  // 1. Movimento WASD
   if (keys['w']) player.y -= player.speed;
   if (keys['s']) player.y += player.speed;
   if (keys['a']) player.x -= player.speed;
   if (keys['d']) player.x += player.speed;
 
-  // Tiro Player
+  // 2. Tiro Player
   pCooldown--;
   if (mouse.down && pCooldown <= 0) {
     let ang = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    pBullets.push({ x: player.x, y: player.y, vx: Math.cos(ang)*12, vy: Math.sin(ang)*12, life: 60 });
+    pBullets.push({ x: player.x, y: player.y, vx: Math.cos(ang)*10, vy: Math.sin(ang)*10, life: 100 });
     pCooldown = 10;
   }
 
-  // IA Agressiva
+  // 3. IA e Tiro Inimigo
   enemies.forEach(en => {
     let dx = player.x - en.x;
     let dy = player.y - en.y;
     let dist = Math.sqrt(dx*dx + dy*dy);
     let ang = Math.atan2(dy, dx);
 
-    // Kiting
-    if (dist > 250) { en.x += Math.cos(ang)*en.speed; en.y += Math.sin(ang)*en.speed; }
-    else if (dist < 150) { en.x -= Math.cos(ang)*en.speed; en.y -= Math.sin(ang)*en.speed; }
+    // Movimento
+    if(dist > 200) { en.x += Math.cos(ang)*en.speed; en.y += Math.sin(ang)*en.speed; }
 
-    // TIRO INIMIGO (CORRIGIDO)
     en.cooldown--;
     if (en.cooldown <= 0) {
-      eBullets.push({
-        x: en.x, y: en.y,
-        vx: Math.cos(ang) * 10, // TESTE EXTREMO: Balas velozes
-        vy: Math.sin(ang) * 10,
-        life: 100
-      });
-      en.cooldown = 30; // Metralhadora
+      // CRÍTICO: Criando a bala laranja
+      eBullets.push({ x: en.x, y: en.y, vx: Math.cos(ang)*7, vy: Math.sin(ang)*7, life: 100 });
+      en.cooldown = 40; 
     }
   });
 
-  // Colisões
-  eBullets.forEach(eb => {
-    eb.x += eb.vx; eb.y += eb.vy; eb.life--;
-    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius) {
-      player.hp -= 5;
-      eb.life = 0;
-      hitFlash = 5; // Ativa o flash vermelho
-    }
-  });
+  // 4. Mover Balas
+  pBullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
+  eBullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
 
-  pBullets.forEach(pb => {
-    pb.x += pb.vx; pb.y += pb.vy; pb.life--;
+  // 5. Colisão Simples
+  eBullets.forEach(b => {
+    if(Math.hypot(b.x - player.x, b.y - player.y) < player.radius) { player.hp -= 2; b.life = 0; }
+  });
+  pBullets.forEach(b => {
     enemies.forEach(en => {
-      if (Math.hypot(pb.x - en.x, pb.y - en.y) < en.radius) {
-        en.hp -= 10; pb.life = 0;
-        if(en.hp <= 0) player.score += 100;
-      }
+      if(Math.hypot(b.x - en.x, b.y - en.y) < en.radius) { en.hp -= 10; b.life = 0; if(en.hp<=0) player.score += 50; }
     });
   });
 
-  eBullets = eBullets.filter(eb => eb.life > 0);
-  pBullets = pBullets.filter(pb => pb.life > 0);
+  pBullets = pBullets.filter(b => b.life > 0);
+  eBullets = eBullets.filter(b => b.life > 0);
   enemies = enemies.filter(en => en.hp > 0);
-
   document.getElementById("hp-fill").style.width = player.hp + "%";
-  document.getElementById("sc").innerText = "DATA_SCORE: " + player.score;
-  if(player.hp <= 0) location.reload();
 }
 
 function draw() {
-  ctx.fillStyle = "#000";
+  // Limpeza total a cada frame
+  ctx.fillStyle = "black";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Efeito de Dano (Hit Flash)
-  if (hitFlash > 0) {
-    ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    hitFlash--;
-  }
-
-  // Desenhar Balas Inimigas (O FIX REAL)
-  ctx.save();
-  ctx.fillStyle = "orange";
-  ctx.shadowBlur = 15;
-  ctx.shadowColor = "orange";
-  eBullets.forEach(eb => {
+  // DESENHAR BALAS PLAYER (CIANO)
+  ctx.fillStyle = "#0ff";
+  pBullets.forEach(b => {
     ctx.beginPath();
-    ctx.arc(eb.x, eb.y, 5, 0, Math.PI * 2);
+    ctx.arc(b.x, b.y, 4, 0, Math.PI*2);
     ctx.fill();
+    ctx.closePath();
   });
-  ctx.restore();
 
-  // Desenhar Player
-  ctx.fillStyle = "white";
-  ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2); ctx.fill();
+  // DESENHAR BALAS INIMIGO (LARANJA)
+  ctx.fillStyle = "#f90";
+  eBullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+    ctx.fill();
+    ctx.closePath();
+  });
 
-  // Desenhar Inimigos
+  // DESENHAR INIMIGOS (VERMELHO)
   ctx.fillStyle = "red";
   enemies.forEach(en => {
-    ctx.beginPath(); ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.closePath();
   });
 
-  // Balas Player
-  ctx.fillStyle = "#0ff";
-  pBullets.forEach(pb => ctx.fillRect(pb.x-2, pb.y-2, 4, 4));
+  // DESENHAR PLAYER (BRANCO)
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
+  ctx.fill();
+  ctx.closePath();
 }
 
-function loop() { update(); draw(); requestAnimationFrame(loop); }
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
 loop();
 </script>
