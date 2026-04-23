@@ -12,8 +12,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-window.onload = () => {
-  
+// ===== CANVAS =====
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -32,39 +31,17 @@ let player = {
 };
 
 let players = {};
+let bullets = [];
 
 // ===== INPUT =====
 canvas.addEventListener("click", move);
+canvas.addEventListener("dblclick", shoot);
 
 function move(e){
   player.x = e.clientX;
   player.y = e.clientY;
   updatePlayer();
 }
-
-// ===== UPDATE FIREBASE =====
-async function updatePlayer(){
-  player.lastUpdate = Date.now();
-  await setDoc(doc(db, "players", playerId), player);
-}
-
-// ===== REMOVER PLAYER =====
-window.addEventListener("beforeunload", ()=>{
-  deleteDoc(doc(db, "players", playerId));
-});
-
-// ===== OUVIR PLAYERS =====
-onSnapshot(collection(db, "players"), (snapshot)=>{
-  players = {};
-  snapshot.forEach(doc=>{
-    players[doc.id] = doc.data();
-  });
-});
-
-// ===== TIROS =====
-let bullets = [];
-
-canvas.addEventListener("dblclick", shoot);
 
 function shoot(){
   bullets.push({
@@ -75,6 +52,23 @@ function shoot(){
     owner: playerId
   });
 }
+
+// ===== FIREBASE =====
+async function updatePlayer(){
+  player.lastUpdate = Date.now();
+  await setDoc(doc(db, "players", playerId), player);
+}
+
+window.addEventListener("beforeunload", ()=>{
+  deleteDoc(doc(db, "players", playerId));
+});
+
+onSnapshot(collection(db, "players"), (snapshot)=>{
+  players = {};
+  snapshot.forEach(doc=>{
+    players[doc.id] = doc.data();
+  });
+});
 
 // ===== COMBATE =====
 function checkHits(){
@@ -90,10 +84,7 @@ function checkHits(){
 
       if(dist < 10){
         p.hp -= 10;
-
-        // Atualiza o alvo no banco
         setDoc(doc(db, "players", id), p);
-
         b.hit = true;
       }
     }
@@ -102,22 +93,17 @@ function checkHits(){
   bullets = bullets.filter(b => !b.hit);
 }
 
-// ===== MORTE =====
 function checkDeath(){
   if(player.hp <= 0){
     player.hp = 100;
-
-    // respawn
     player.x = Math.random()*500+100;
     player.y = Math.random()*300+100;
-
     updatePlayer();
   }
 }
 
 // ===== LOOP =====
 function update(){
-
   bullets.forEach(b=>{
     b.x += b.dx;
     b.y += b.dy;
@@ -130,6 +116,7 @@ function update(){
 function draw(){
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
+
   // MAPA
   ctx.fillStyle="#222";
   ctx.fillRect(50,50,canvas.width-100,canvas.height-100);
@@ -152,7 +139,7 @@ function draw(){
     ctx.arc(p.x,p.y,10,0,Math.PI*2);
     ctx.fill();
 
-    // HP BAR
+    // HP
     ctx.fillStyle="red";
     ctx.fillRect(p.x-10,p.y-20,20,4);
 
@@ -160,37 +147,25 @@ function draw(){
     ctx.fillRect(p.x-10,p.y-20,(p.hp/100)*20,4);
   }
 
-  // FOG
-  // ===== FOG LIMPO =====
-
-// cria camada escura
-ctx.fillStyle = "rgba(0,0,0,0.9)";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
-// recorta área visível
-ctx.save();
-ctx.globalCompositeOperation = "destination-out";
-
-let grd = ctx.createRadialGradient(
-  player.x, player.y, 20,
-  player.x, player.y, 180
-);
-
-grd.addColorStop(0, "rgba(0,0,0,1)");
-grd.addColorStop(1, "rgba(0,0,0,0)");
-
-ctx.fillStyle = grd;
-ctx.beginPath();
-ctx.arc(player.x, player.y, 180, 0, Math.PI*2);
-ctx.fill();
-
-ctx.restore();
-}
   // BULLETS
- ctx.fillStyle="white";
+  ctx.fillStyle="white";
   bullets.forEach(b=>{
     ctx.fillRect(b.x,b.y,4,4);
   });
+
+  // ===== FOG =====
+  ctx.save();
+
+  ctx.fillStyle = "rgba(0,0,0,0.9)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.globalCompositeOperation = "destination-out";
+
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, 180, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function loop(){
@@ -199,7 +174,9 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
+// START
 loop();
 updatePlayer();
 setInterval(updatePlayer, 1000);
+
 </script>
