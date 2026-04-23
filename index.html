@@ -1,27 +1,13 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mini MOBA</title>
-
-<style>
-body { margin:0; overflow:hidden; background:#111; }
-canvas { display:block; }
-</style>
-</head>
-
-<body>
-<canvas id="game"></canvas>
-
 <script type="module">
-// ===== FIREBASE CONFIG (COLOQUE A SUA AQUI) =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ===== FIREBASE =====
 const firebaseConfig = {
-  apiKey: "AIzaSyCpUoutk0exFpw3C39myNwGtKLjJcOv41I",
-  authDomain: "noobmoba-708f5.firebaseapp.com",
-  projectId: "noobmoba-708f5",
+  apiKey: "SUA_KEY",
+  authDomain: "SEU_PROJETO.firebaseapp.com",
+  projectId: "SEU_ID",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -41,10 +27,10 @@ let player = {
   x: Math.random()*500+100,
   y: Math.random()*300+100,
   color: ["red","blue","green","yellow"][Math.floor(Math.random()*4)],
-  hp: 100
+  hp: 100,
+  lastUpdate: Date.now()
 };
 
-// ===== OUTROS JOGADORES =====
 let players = {};
 
 // ===== INPUT =====
@@ -61,12 +47,20 @@ function move(e){
   updatePlayer();
 }
 
-// ===== ATUALIZA NO FIREBASE =====
+// ===== FIREBASE UPDATE =====
 async function updatePlayer(){
+  player.lastUpdate = Date.now();
   await setDoc(doc(db, "players", playerId), player);
 }
 
-// ===== OUVIR OUTROS JOGADORES =====
+// ===== REMOVER PLAYER =====
+async function removePlayer(){
+  await deleteDoc(doc(db, "players", playerId));
+}
+
+window.addEventListener("beforeunload", removePlayer);
+
+// ===== OUVIR PLAYERS =====
 onSnapshot(collection(db, "players"), (snapshot)=>{
   players = {};
   snapshot.forEach(doc=>{
@@ -79,7 +73,7 @@ let bullets = [];
 
 canvas.addEventListener("dblclick", shoot);
 
-function shoot(e){
+function shoot(){
   bullets.push({
     x: player.x,
     y: player.y,
@@ -100,7 +94,7 @@ function draw(){
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // MAPA (simples)
+  // MAPA
   ctx.fillStyle="#222";
   ctx.fillRect(50,50,canvas.width-100,canvas.height-100);
 
@@ -111,23 +105,36 @@ function draw(){
   ctx.fillStyle="red";
   ctx.fillRect(canvas.width-80,canvas.height/2-30,20,60);
 
-  // PLAYERS
+  // ===== DESENHAR PLAYERS =====
   for(let id in players){
     let p = players[id];
+
+    // REMOVE FANTASMAS
+    if(Date.now() - p.lastUpdate > 5000) continue;
 
     ctx.fillStyle = p.color;
     ctx.beginPath();
     ctx.arc(p.x,p.y,10,0,Math.PI*2);
     ctx.fill();
-
-    // FOG OF WAR
-    let grd = ctx.createRadialGradient(p.x,p.y,20,p.x,p.y,120);
-    grd.addColorStop(0,"rgba(0,0,0,0)");
-    grd.addColorStop(1,"rgba(0,0,0,0.9)");
-
-    ctx.fillStyle = grd;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
   }
+
+  // ===== FOG OF WAR (CORRETO) =====
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // "luz" ao redor do jogador atual
+  ctx.globalCompositeOperation = "destination-out";
+
+  let grd = ctx.createRadialGradient(player.x,player.y,20,player.x,player.y,150);
+  grd.addColorStop(0,"rgba(0,0,0,1)");
+  grd.addColorStop(1,"rgba(0,0,0,0)");
+
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,150,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.globalCompositeOperation = "source-over";
 
   // BULLETS
   ctx.fillStyle="white";
@@ -143,10 +150,6 @@ function loop(){
 }
 
 loop();
-
-// PRIMEIRO UPDATE
 updatePlayer();
 
 </script>
-</body>
-</html>
