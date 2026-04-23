@@ -1,22 +1,17 @@
+<style>
+  body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+  canvas { display: block; touch-action: none; cursor: crosshair; }
+  #ui { position: fixed; top: 10px; left: 10px; color: white; pointer-events: none; }
+</style>
+
+<div id="ui">HP: <span id="hp">100</span></div>
 <canvas id="game"></canvas>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-// ===== FIREBASE =====
-const firebaseConfig = {
-  apiKey: "AIzaSyCpUoutk0exFpw3C39myNwGtKLjJcOv41I",
-  authDomain: "noobmoba-708f5.firebaseapp.com",
-  projectId: "noobmoba-708f5",
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// ===== CANVAS =====
+<script>
+// ===== SETUP INICIAL =====
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const hpDisplay = document.getElementById("hp");
 
 function resize() {
   canvas.width = window.innerWidth;
@@ -25,165 +20,129 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// ===== PLAYER ID =====
-let playerId = localStorage.getItem("playerId") || Math.random().toString(36).substr(2, 9);
-localStorage.setItem("playerId", playerId);
-
-// ===== PLAYER OBJECT =====
+// ===== ESTADO DO JOGO =====
 let player = {
-  x: Math.random() * 500 + 100,
-  y: Math.random() * 300 + 100,
-  targetX: 0,
-  targetY: 0,
-  speed: 3,
-  color: ["#ff4444", "#4444ff", "#44ff44", "#ffff44"][Math.floor(Math.random() * 4)],
+  x: canvas.width / 2,
+  y: canvas.height / 2,
+  targetX: canvas.width / 2,
+  targetY: canvas.height / 2,
+  speed: 4,
+  radius: 6,
   hp: 100,
-  lastUpdate: Date.now()
+  vision: 150 // Raio do Fog of War
 };
-player.targetX = player.x;
-player.targetY = player.y;
 
-let players = {};
 let bullets = [];
+let enemies = []; // Adicionei alguns alvos para você testar o tiro
 
-// ===== INPUTS =====
-canvas.addEventListener("click", setTarget);
-canvas.addEventListener("touchstart", (e) => {
-  const t = e.touches[0];
-  setTarget({ clientX: t.clientX, clientY: t.clientY });
-});
-
-function setTarget(e) {
-  player.targetX = e.clientX;
-  player.targetY = e.clientY;
+// Criar alguns "alvos" estáticos no mapa
+for(let i=0; i<10; i++) {
+  enemies.push({
+    x: Math.random() * 2000,
+    y: Math.random() * 2000,
+    color: "#ff4444"
+  });
 }
 
+// ===== INPUTS =====
+canvas.addEventListener("mousedown", (e) => {
+  player.targetX = e.clientX;
+  player.targetY = e.clientY;
+});
+
+canvas.addEventListener("touchstart", (e) => {
+  const t = e.touches[0];
+  player.targetX = t.clientX;
+  player.targetY = t.clientY;
+});
+
+// Tiro no Espaço ou Clique Duplo
+window.addEventListener("keydown", (e) => { if(e.code === "Space") shoot(); });
 canvas.addEventListener("dblclick", shoot);
+
 function shoot() {
+  const angle = Math.atan2(player.targetY - player.y, player.targetX - player.x);
   bullets.push({
     x: player.x,
     y: player.y,
-    dx: (player.targetX - player.x) / 20 || 5,
-    dy: (player.targetY - player.y) / 20 || 0,
-    owner: playerId,
-    hit: false
+    vx: Math.cos(angle) * 8,
+    vy: Math.sin(angle) * 8,
+    life: 100
   });
 }
 
-// ===== FIREBASE SYNC & CLEANUP =====
-async function updatePlayer() {
-  player.lastUpdate = Date.now();
-  await setDoc(doc(db, "players", playerId), player);
-}
-
-// Limpeza de fantasmas (Deleta do banco players inativos por mais de 5s)
-async function cleanGhosts() {
-  for (let id in players) {
-    if (id === playerId) continue;
-    let p = players[id];
-    if (!p.lastUpdate || Date.now() - p.lastUpdate > 5000) {
-      try {
-        await deleteDoc(doc(db, "players", id));
-      } catch (e) { console.error("Erro ao limpar ghost:", e); }
-    }
-  }
-}
-setInterval(cleanGhosts, 4000);
-
-onSnapshot(collection(db, "players"), (snapshot) => {
-  let activePlayers = {};
-  snapshot.forEach(doc => {
-    activePlayers[doc.id] = doc.data();
-  });
-  players = activePlayers;
-});
-
-// ===== GAME LOGIC =====
+// ===== LÓGICA =====
 function update() {
+  // Movimento
   let dx = player.targetX - player.x;
   let dy = player.targetY - player.y;
-  let dist = Math.sqrt(dx * dx + dy * dy);
+  let dist = Math.sqrt(dx*dx + dy*dy);
 
-  if (dist > 1) {
-    player.x += (dx / dist) * player.speed;
-    player.y += (dy / dist) * player.speed;
+  if(dist > 2) {
+    player.x += (dx/dist) * player.speed;
+    player.y += (dy/dist) * player.speed;
   }
 
-  bullets.forEach(b => {
-    b.x += b.dx;
-    b.y += b.dy;
+  // Balas
+  bullets.forEach((b, index) => {
+    b.x += b.vx;
+    b.y += b.vy;
+    b.life--;
+    if(b.life <= 0) bullets.splice(index, 1);
   });
-
-  // Check Hits
-  bullets.forEach(b => {
-    for (let id in players) {
-      if (id === b.owner) continue;
-      let p = players[id];
-      let dist = Math.hypot(p.x - b.x, p.y - b.y);
-      if (dist < 10) {
-        b.hit = true;
-        if (id === playerId) player.hp -= 2; // Dano local
-      }
-    }
-  });
-  bullets = bullets.filter(b => !b.hit);
-
-  if (player.hp <= 0) {
-    player.hp = 100;
-    player.x = 100; player.y = 100;
-  }
-
-  updatePlayer();
 }
 
-// ===== RENDER =====
+// ===== RENDERIZAÇÃO =====
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 1. CHÃO / ARENA
-  ctx.fillStyle = "#1a1a1a";
+  // 1. Limpar e Fundo (O que está "dentro" do mapa)
+  ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
-  // Grade de fundo (opcional para referência visual)
-  ctx.strokeStyle = "#333";
+
+  // Desenhar grid de fundo
+  ctx.strokeStyle = "#222";
   for(let i=0; i<canvas.width; i+=50) {
-    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
   }
 
-  // 2. OUTROS PLAYERS
-  for (let id in players) {
-    if (id === playerId) continue;
-    let p = players[id];
-    
-    // Filtro de tempo para não desenhar fantasmas no canvas
-    if (!p.lastUpdate || Date.now() - p.lastUpdate > 2000) continue;
-
-    ctx.fillStyle = p.color;
+  // 2. Desenhar Objetos (Enemies/Alvos)
+  enemies.forEach(en => {
+    ctx.fillStyle = en.color;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+    ctx.arc(en.x, en.y, 5, 0, Math.PI*2);
     ctx.fill();
-  }
+  });
 
-  // 3. PLAYER LOCAL
-  ctx.fillStyle = "white";
+  // 3. Desenhar Player
+  ctx.fillStyle = "#fff";
   ctx.beginPath();
-  ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
   ctx.fill();
 
-  // 4. TIROS
-  ctx.fillStyle = "#fff";
-  bullets.forEach(b => ctx.fillRect(b.x, b.y, 4, 4));
+  // 4. Desenhar Tiros
+  ctx.fillStyle = "yellow";
+  bullets.forEach(b => {
+    ctx.fillRect(b.x-2, b.y-2, 4, 4);
+  });
 
-  // 5. FOG OF WAR (SISTEMA DE MÁSCARA)
+  // 5. FOG OF WAR (O CORTE DEFINITIVO)
   ctx.save();
-  ctx.fillStyle = "rgba(0, 0, 0, 0.8)"; // Escuridão
+  // Camada de escuridão total
+  ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Recorta o círculo de visão
+  // Operação de "recorte" para abrir a visão
   ctx.globalCompositeOperation = "destination-out";
+  
   ctx.beginPath();
-  ctx.arc(player.x, player.y, 150, 0, Math.PI * 2); // Raio de visão: 150
+  // Gradiente para suavizar a borda da visão (opcional, mas fica mais bonito)
+  let grd = ctx.createRadialGradient(player.x, player.y, 50, player.x, player.y, player.vision);
+  grd.addColorStop(0, "rgba(255, 255, 255, 1)");
+  grd.addColorStop(1, "rgba(255, 255, 255, 0)");
+  
+  ctx.fillStyle = grd;
+  ctx.arc(player.x, player.y, player.vision, 0, Math.PI*2);
   ctx.fill();
+  
   ctx.restore();
 }
 
@@ -192,10 +151,6 @@ function loop() {
   draw();
   requestAnimationFrame(loop);
 }
-loop();
 
+loop();
 </script>
-<style>
-  body { margin: 0; overflow: hidden; background: #000; }
-  canvas { display: block; touch-action: none; }
-</style>
