@@ -3,7 +3,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ===== FIREBASE =====
 const firebaseConfig = {
   apiKey: "AIzaSyCpUoutk0exFpw3C39myNwGtKLjJcOv41I",
   authDomain: "noobmoba-708f5.firebaseapp.com",
@@ -13,7 +12,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ===== CANVAS =====
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -34,31 +32,24 @@ let player = {
 let players = {};
 
 // ===== INPUT =====
-canvas.addEventListener("touchstart", move);
 canvas.addEventListener("click", move);
 
 function move(e){
-  let x = e.clientX || e.touches[0].clientX;
-  let y = e.clientY || e.touches[0].clientY;
-
-  player.x = x;
-  player.y = y;
-
+  player.x = e.clientX;
+  player.y = e.clientY;
   updatePlayer();
 }
 
-// ===== FIREBASE UPDATE =====
+// ===== UPDATE FIREBASE =====
 async function updatePlayer(){
   player.lastUpdate = Date.now();
   await setDoc(doc(db, "players", playerId), player);
 }
 
 // ===== REMOVER PLAYER =====
-async function removePlayer(){
-  await deleteDoc(doc(db, "players", playerId));
-}
-
-window.addEventListener("beforeunload", removePlayer);
+window.addEventListener("beforeunload", ()=>{
+  deleteDoc(doc(db, "players", playerId));
+});
 
 // ===== OUVIR PLAYERS =====
 onSnapshot(collection(db, "players"), (snapshot)=>{
@@ -77,17 +68,61 @@ function shoot(){
   bullets.push({
     x: player.x,
     y: player.y,
-    dx: (Math.random()-0.5)*6,
-    dy: (Math.random()-0.5)*6
+    dx: (Math.random()-0.5)*8,
+    dy: (Math.random()-0.5)*8,
+    owner: playerId
   });
+}
+
+// ===== COMBATE =====
+function checkHits(){
+  bullets.forEach(b => {
+    for(let id in players){
+      if(id === b.owner) continue;
+
+      let p = players[id];
+
+      let dx = p.x - b.x;
+      let dy = p.y - b.y;
+      let dist = Math.sqrt(dx*dx + dy*dy);
+
+      if(dist < 10){
+        p.hp -= 10;
+
+        // Atualiza o alvo no banco
+        setDoc(doc(db, "players", id), p);
+
+        b.hit = true;
+      }
+    }
+  });
+
+  bullets = bullets.filter(b => !b.hit);
+}
+
+// ===== MORTE =====
+function checkDeath(){
+  if(player.hp <= 0){
+    player.hp = 100;
+
+    // respawn
+    player.x = Math.random()*500+100;
+    player.y = Math.random()*300+100;
+
+    updatePlayer();
+  }
 }
 
 // ===== LOOP =====
 function update(){
+
   bullets.forEach(b=>{
     b.x += b.dx;
     b.y += b.dy;
   });
+
+  checkHits();
+  checkDeath();
 }
 
 function draw(){
@@ -105,24 +140,29 @@ function draw(){
   ctx.fillStyle="red";
   ctx.fillRect(canvas.width-80,canvas.height/2-30,20,60);
 
-  // ===== DESENHAR PLAYERS =====
+  // PLAYERS
   for(let id in players){
     let p = players[id];
 
-    // REMOVE FANTASMAS
     if(Date.now() - p.lastUpdate > 5000) continue;
 
     ctx.fillStyle = p.color;
     ctx.beginPath();
     ctx.arc(p.x,p.y,10,0,Math.PI*2);
     ctx.fill();
+
+    // HP BAR
+    ctx.fillStyle="red";
+    ctx.fillRect(p.x-10,p.y-20,20,4);
+
+    ctx.fillStyle="green";
+    ctx.fillRect(p.x-10,p.y-20,(p.hp/100)*20,4);
   }
 
-  // ===== FOG OF WAR (CORRETO) =====
-  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  // FOG
+  ctx.fillStyle="rgba(0,0,0,0.85)";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // "luz" ao redor do jogador atual
   ctx.globalCompositeOperation = "destination-out";
 
   let grd = ctx.createRadialGradient(player.x,player.y,20,player.x,player.y,150);
