@@ -32,7 +32,7 @@ let player = {
 };
 
 let players = {};
-setInterval(updatePlayer, 1000);
+
 // ===== INPUT =====
 canvas.addEventListener("click", move);
 
@@ -130,7 +130,6 @@ function update(){
 function draw(){
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
   // MAPA
   ctx.fillStyle="#222";
   ctx.fillRect(50,50,canvas.width-100,canvas.height-100);
@@ -166,7 +165,7 @@ function draw(){
 
 // cria camada escura
 ctx.fillStyle = "rgba(0,0,0,0.9)";
-ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
 // recorta área visível
 ctx.save();
@@ -186,9 +185,9 @@ ctx.arc(player.x, player.y, 180, 0, Math.PI*2);
 ctx.fill();
 
 ctx.restore();
-
+}
   // BULLETS
-  ctx.fillStyle="white";
+ ctx.fillStyle="white";
   bullets.forEach(b=>{
     ctx.fillRect(b.x,b.y,4,4);
   });
@@ -202,5 +201,5 @@ function loop(){
 
 loop();
 updatePlayer();
-
+setInterval(updatePlayer, 1000);
 </script>
