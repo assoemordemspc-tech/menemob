@@ -1,10 +1,19 @@
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
-  canvas { display: block; }
-  #ui { position: fixed; top: 10px; left: 10px; color: #f00; font-size: 18px; pointer-events: none; }
+  body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+  canvas { display: block; touch-action: none; }
+  #ui { 
+    position: fixed; top: 15px; left: 15px; color: #0f0; 
+    pointer-events: none; text-shadow: 2px 2px #000; 
+  }
+  .bar { width: 200px; height: 12px; background: #333; border: 1px solid #555; margin-top: 5px; }
+  #hp-fill { width: 100%; height: 100%; background: #f00; transition: width 0.2s; }
 </style>
 
-<div id="ui">HP: <span id="hp">100</span> | SCORE: <span id="sc">0</span></div>
+<div id="ui">
+  <div>SISTEMA DE COMBATE ATIVO</div>
+  <div class="bar"><div id="hp-fill"></div></div>
+  <div id="score" style="margin-top:5px">ABATES: 0</div>
+</div>
 <canvas id="game"></canvas>
 
 <script>
@@ -18,98 +27,116 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// ===== CONFIGURAÇÃO =====
-let player = { x: 400, y: 300, speed: 5, radius: 10, hp: 100, score: 0 };
+// ===== ESTADO =====
+let player = {
+  x: window.innerWidth / 2,
+  y: window.innerHeight / 2,
+  speed: 5,
+  radius: 10,
+  hp: 100,
+  score: 0
+};
+
 let enemies = [];
-let pBullets = []; // Balas do Player
-let eBullets = []; // Balas dos Inimigos
+let pBullets = []; // Balas do Player (Ciano)
+let eBullets = []; // Balas do Inimigo (Amarelo)
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
 let pCooldown = 0;
 
-// ===== CONTROLES =====
+// ===== INPUTS =====
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 window.onmousemove = e => { mouse.x = e.clientX; mouse.y = e.clientY; };
 window.onmousedown = () => mouse.down = true;
 window.onmouseup = () => mouse.down = false;
 
-// ===== SPAWN DE INIMIGOS (IA QUE ATIRA) =====
-function spawn() {
-  if (enemies.length < 6) {
+// ===== IA SENTINELA =====
+function spawnEnemy() {
+  if (enemies.length < 8) {
     enemies.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
+      speed: 2,
       hp: 30,
       radius: 12,
-      cooldown: 60, // Tempo entre tiros
-      speed: 1.5
+      shootTimer: 60 + Math.random() * 60, // Tempo aleatório para o primeiro tiro
+      sideMove: Math.random() > 0.5 ? 1 : -1
     });
   }
 }
-setInterval(spawn, 2000);
+setInterval(spawnEnemy, 2000);
 
-// ===== LÓGICA DO JOGO =====
+// ===== LÓGICA PRINCIPAL =====
 function update() {
-  // 1. Movimento Player (WASD)
+  // 1. Movimento WASD
   if (keys['w']) player.y -= player.speed;
   if (keys['s']) player.y += player.speed;
   if (keys['a']) player.x -= player.speed;
   if (keys['d']) player.x += player.speed;
 
-  // 2. Tiro do Player
+  // 2. Tiro do Player (Segurando Mouse)
   pCooldown--;
   if (mouse.down && pCooldown <= 0) {
-    let ang = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    pBullets.push({ x: player.x, y: player.y, vx: Math.cos(ang)*10, vy: Math.sin(ang)*10, life: 60 });
-    pCooldown = 10;
+    let angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    pBullets.push({
+      x: player.x, y: player.y,
+      vx: Math.cos(angle) * 12,
+      vy: Math.sin(angle) * 12,
+      life: 60
+    });
+    pCooldown = 8; // Velocidade de tiro rápida
   }
 
-  // 3. IA DOS INIMIGOS
+  // 3. IA dos Inimigos
   enemies.forEach(en => {
     let dx = player.x - en.x;
     let dy = player.y - en.y;
     let dist = Math.sqrt(dx*dx + dy*dy);
-    let ang = Math.atan2(dy, dx);
+    let angle = Math.atan2(dy, dx);
 
-    // Comportamento: Tenta manter 200px de distância
-    if (dist > 220) {
-      en.x += Math.cos(ang) * en.speed;
-      en.y += Math.sin(ang) * en.speed;
-    } else if (dist < 180) {
-      en.x -= Math.cos(ang) * en.speed;
-      en.y -= Math.sin(ang) * en.speed;
+    // Kiting: Mantém distância de 250px
+    if (dist > 300) {
+      en.x += Math.cos(angle) * en.speed;
+      en.y += Math.sin(angle) * en.speed;
+    } else if (dist < 200) {
+      en.x -= Math.cos(angle) * en.speed;
+      en.y -= Math.sin(angle) * en.speed;
     }
+    
+    // Desvio lateral (Orbitar o player)
+    en.x += Math.cos(angle + Math.PI/2) * en.speed * en.sideMove;
+    en.y += Math.sin(angle + Math.PI/2) * en.speed * en.sideMove;
+    if(Math.random() < 0.01) en.sideMove *= -1;
 
-    // ATAQUE DO INIMIGO (DISPARO REAL)
-    en.cooldown--;
-    if (en.cooldown <= 0 && dist < 600) {
+    // ATAQUE: Inimigo atira
+    en.shootTimer--;
+    if (en.shootTimer <= 0 && dist < 700) {
       eBullets.push({
-        x: en.x, 
-        y: en.y, 
-        vx: Math.cos(ang) * 5, // Bala mais lenta que a sua
-        vy: Math.sin(ang) * 5, 
-        life: 120 
+        x: en.x, y: en.y,
+        vx: Math.cos(angle) * 6,
+        vy: Math.sin(angle) * 6,
+        life: 150
       });
-      en.cooldown = 90; // Reseta tempo de tiro
+      en.shootTimer = 100; // Tempo entre tiros do inimigo
     }
   });
 
-  // 4. BALAS (MOVER E COLIDIR)
-  pBullets.forEach((b, i) => {
+  // 4. Colisões e Balas
+  pBullets.forEach(b => {
     b.x += b.vx; b.y += b.vy; b.life--;
     enemies.forEach(en => {
-      if (Math.hypot(b.x - en.x, b.y - en.y) < en.radius) {
+      if (Math.hypot(b.x - en.x, b.y - en.y) < en.radius + 5) {
         en.hp -= 10; b.life = 0;
-        if (en.hp <= 0) player.score += 50;
+        if (en.hp <= 0) player.score += 100;
       }
     });
   });
 
-  eBullets.forEach((eb, i) => {
+  eBullets.forEach(eb => {
     eb.x += eb.vx; eb.y += eb.vy; eb.life--;
-    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius) {
-      player.hp -= 5; eb.life = 0;
+    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius + 3) {
+      player.hp -= 10; eb.life = 0;
     }
   });
 
@@ -119,33 +146,49 @@ function update() {
   enemies = enemies.filter(en => en.hp > 0);
 
   // UI
-  document.getElementById("hp").innerText = Math.ceil(player.hp);
-  document.getElementById("sc").innerText = player.score;
+  document.getElementById("hp-fill").style.width = player.hp + "%";
+  document.getElementById("score").innerText = "ABATES: " + player.score;
 
-  if (player.hp <= 0) { alert("GAMEOVER"); location.reload(); }
+  if (player.hp <= 0) {
+    alert("MORTE CONFIRMADA. SCORE: " + player.score);
+    location.reload();
+  }
 }
 
-// ===== DESENHO =====
+// ===== RENDER =====
 function draw() {
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = "#0a0a0a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Inimigos (Vermelhos)
-  ctx.fillStyle = "red";
+  // Grid
+  ctx.strokeStyle = "#111";
+  for(let i=0; i<canvas.width; i+=50){
+    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+  }
+
+  // Inimigos (Vermelho vibrante)
   enemies.forEach(en => {
+    ctx.fillStyle = "#ff3300";
     ctx.beginPath(); ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2); ctx.fill();
+    // Vida do inimigo
+    ctx.fillStyle = "#000"; ctx.fillRect(en.x-10, en.y-18, 20, 3);
+    ctx.fillStyle = "#f00"; ctx.fillRect(en.x-10, en.y-18, (en.hp/30)*20, 3);
   });
 
-  // Player (Branco)
-  ctx.fillStyle = "white";
+  // Player (Branco com brilho)
+  ctx.fillStyle = "#fff";
   ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2); ctx.fill();
 
-  // Tiros Player (Verde) e Inimigos (Amarelo)
-  ctx.fillStyle = "#0f0";
-  pBullets.forEach(b => ctx.fillRect(b.x, b.y, 4, 4));
+  // Balas
+  ctx.fillStyle = "#0ff"; // Player
+  pBullets.forEach(b => ctx.fillRect(b.x-2, b.y-2, 4, 4));
   
-  ctx.fillStyle = "yellow";
-  eBullets.forEach(eb => ctx.fillRect(eb.x, eb.y, 6, 6));
+  ctx.fillStyle = "#ff0"; // Inimigo
+  eBullets.forEach(eb => ctx.beginPath() || ctx.arc(eb.x, eb.y, 3, 0, Math.PI*2) || ctx.fill());
+
+  // Mira
+  ctx.strokeStyle = "rgba(0, 255, 255, 0.2)";
+  ctx.beginPath(); ctx.moveTo(player.x, player.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
 }
 
 function loop() { update(); draw(); requestAnimationFrame(loop); }
