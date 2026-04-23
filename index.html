@@ -32,7 +32,7 @@ let player = {
 };
 
 let players = {};
-
+setInterval(updatePlayer, 1000);
 // ===== INPUT =====
 canvas.addEventListener("click", move);
 
@@ -146,7 +146,7 @@ function draw(){
   for(let id in players){
     let p = players[id];
 
-    if(Date.now() - p.lastUpdate > 5000) continue;
+    if(Date.now() - p.lastUpdate > 3000) continue;
 
     ctx.fillStyle = p.color;
     ctx.beginPath();
@@ -162,21 +162,30 @@ function draw(){
   }
 
   // FOG
-  ctx.fillStyle="rgba(0,0,0,0.85)";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  // ===== FOG LIMPO =====
 
-  ctx.globalCompositeOperation = "destination-out";
+// cria camada escura
+ctx.fillStyle = "rgba(0,0,0,0.9)";
+ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  let grd = ctx.createRadialGradient(player.x,player.y,20,player.x,player.y,150);
-  grd.addColorStop(0,"rgba(0,0,0,1)");
-  grd.addColorStop(1,"rgba(0,0,0,0)");
+// recorta área visível
+ctx.save();
+ctx.globalCompositeOperation = "destination-out";
 
-  ctx.fillStyle = grd;
-  ctx.beginPath();
-  ctx.arc(player.x,player.y,150,0,Math.PI*2);
-  ctx.fill();
+let grd = ctx.createRadialGradient(
+  player.x, player.y, 20,
+  player.x, player.y, 180
+);
 
-  ctx.globalCompositeOperation = "source-over";
+grd.addColorStop(0, "rgba(0,0,0,1)");
+grd.addColorStop(1, "rgba(0,0,0,0)");
+
+ctx.fillStyle = grd;
+ctx.beginPath();
+ctx.arc(player.x, player.y, 180, 0, Math.PI*2);
+ctx.fill();
+
+ctx.restore();
 
   // BULLETS
   ctx.fillStyle="white";
