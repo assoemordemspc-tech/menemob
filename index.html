@@ -1,18 +1,15 @@
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-  canvas { display: block; touch-action: none; }
-  #ui { 
-    position: fixed; top: 20px; left: 20px; color: #0f0; 
-    pointer-events: none; text-shadow: 2px 2px #000; z-index: 10;
-  }
-  .bar { width: 200px; height: 10px; background: #333; border: 1px solid #555; }
+  body { margin: 0; overflow: hidden; background: #050505; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+  #ui { position: fixed; top: 20px; left: 20px; color: #0f0; pointer-events: none; text-shadow: 2px 2px #000; }
+  .bar { width: 200px; height: 10px; background: #333; border: 1px solid #444; }
   #hp-fill { width: 100%; height: 100%; background: #f00; }
 </style>
 
 <div id="ui">
-  <div>STATUS: OPERACIONAL</div>
+  <div>MISSÃO: ELIMINAR SENTINELAS</div>
   <div class="bar"><div id="hp-fill"></div></div>
-  <div id="score">ABATES: 0</div>
+  <div id="score">SCORE: 0</div>
 </div>
 <canvas id="game"></canvas>
 
@@ -20,7 +17,6 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-// Garantir que o canvas ocupe a tela toda
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -39,153 +35,159 @@ let player = {
 };
 
 let enemies = [];
-let bullets = [];
+let bullets = [];     // Balas do player (Ciano)
+let enemyBullets = []; // Balas dos inimigos (Laranja)
 let keys = {};
 let mouse = { x: 0, y: 0, pressing: false };
 let shootCooldown = 0;
 
-// ===== INPUTS =====
-window.addEventListener("keydown", e => { keys[e.key.toLowerCase()] = true; });
-window.addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 window.addEventListener("mousemove", e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-window.addEventListener("mousedown", () => { mouse.pressing = true; });
-window.addEventListener("mouseup", () => { mouse.pressing = false; });
+window.addEventListener("mousedown", () => mouse.pressing = true);
+window.addEventListener("mouseup", () => mouse.pressing = false);
 
-// ===== FUNÇÃO DE SPAWN (Corrigida para aparecer na tela) =====
+// ===== SPAWN DE SENTINELAS (IA INTELIGENTE) =====
 function spawnEnemy() {
-  if (enemies.length < 15) { // Limite de inimigos simultâneos
+  if (enemies.length < 5) { 
     enemies.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      speed: 1 + Math.random(),
-      hp: 30,
-      radius: 8
+      speed: 2,
+      hp: 40,
+      radius: 12,
+      shootTimer: Math.random() * 60,
+      sideMove: Math.random() > 0.5 ? 1 : -1 // Direção do desvio lateral
     });
   }
 }
-setInterval(spawnEnemy, 2000);
+setInterval(spawnEnemy, 3000);
 
-// ===== LÓGICA PRINCIPAL =====
+// ===== LOGICA DE IA E MOVIMENTO =====
 function update() {
-  // 1. Movimento WASD
+  // 1. Movimento Player
   if (keys["w"]) player.y -= player.speed;
   if (keys["s"]) player.y += player.speed;
   if (keys["a"]) player.x -= player.speed;
   if (keys["d"]) player.x += player.speed;
 
-  // 2. Tiro
+  // 2. Tiro do Player
   shootCooldown--;
   if (mouse.pressing && shootCooldown <= 0) {
     const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    bullets.push({
-      x: player.x,
-      y: player.y,
-      vx: Math.cos(angle) * 12,
-      vy: Math.sin(angle) * 12,
-      life: 60
-    });
+    bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 60 });
     shootCooldown = 10;
   }
 
-  // 3. Atualizar Inimigos
+  // 3. IA DOS INIMIGOS (Manter distância + Atirar + Desviar)
   enemies.forEach(en => {
     let dx = player.x - en.x;
     let dy = player.y - en.y;
     let dist = Math.sqrt(dx*dx + dy*dy);
+    let angleToPlayer = Math.atan2(dy, dx);
 
-    // Perseguição
-    if (dist > 5) {
-      en.x += (dx/dist) * en.speed;
-      en.y += (dy/dist) * en.speed;
+    const idealDist = 250; // Distância que ele quer manter
+
+    // LÓGICA DE MOVIMENTO (KITING)
+    if (dist < idealDist - 20) {
+      // Perto demais: Foge
+      en.x -= Math.cos(angleToPlayer) * en.speed;
+      en.y -= Math.sin(angleToPlayer) * en.speed;
+    } else if (dist > idealDist + 20) {
+      // Longe demais: Aproxima
+      en.x += Math.cos(angleToPlayer) * en.speed;
+      en.y += Math.sin(angleToPlayer) * en.speed;
     }
 
-    // Dano ao player
-    if (dist < player.radius + en.radius) {
-      player.hp -= 0.2;
+    // DESVIO LATERAL (Strafing)
+    // Move-se perpendicularmente ao player para desviar de balas
+    en.x += Math.cos(angleToPlayer + Math.PI/2) * (en.speed * 0.8) * en.sideMove;
+    en.y += Math.sin(angleToPlayer + Math.PI/2) * (en.speed * 0.8) * en.sideMove;
+
+    // Chance de mudar a direção do desvio
+    if(Math.random() < 0.01) en.sideMove *= -1;
+
+    // TIRO DO INIMIGO
+    en.shootTimer--;
+    if (en.shootTimer <= 0 && dist < 500) {
+      enemyBullets.push({
+        x: en.x, y: en.y,
+        vx: Math.cos(angleToPlayer) * 6,
+        vy: Math.sin(angleToPlayer) * 6,
+        life: 100
+      });
+      en.shootTimer = 80 + Math.random() * 40; // Cooldown inimigo
     }
   });
 
-  // 4. Colisão Bala -> Inimigo
-  bullets.forEach((b, bi) => {
-    b.x += b.vx;
-    b.y += b.vy;
-    b.life--;
-
-    enemies.forEach((en, ei) => {
-      let dx = b.x - en.x;
-      let dy = b.y - en.y;
-      let dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist < en.radius + 5) {
-        en.hp -= 10;
-        b.life = 0;
-        if (en.hp <= 0) player.score++;
+  // 4. COLISÕES E BALAS
+  // Balas Player -> Inimigo
+  bullets.forEach(b => {
+    b.x += b.vx; b.y += b.vy; b.life--;
+    enemies.forEach(en => {
+      if (Math.hypot(b.x - en.x, b.y - en.y) < en.radius) {
+        en.hp -= 10; b.life = 0;
+        if (en.hp <= 0) player.score += 100;
       }
     });
+  });
+
+  // Balas Inimigo -> Player
+  enemyBullets.forEach(eb => {
+    eb.x += eb.vx; eb.y += eb.vy; eb.life--;
+    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius) {
+      player.hp -= 5; eb.life = 0;
+    }
   });
 
   // Limpeza
   enemies = enemies.filter(en => en.hp > 0);
   bullets = bullets.filter(b => b.life > 0);
+  enemyBullets = enemyBullets.filter(eb => eb.life > 0);
 
-  // Atualizar UI
+  // UI
   document.getElementById("hp-fill").style.width = player.hp + "%";
-  document.getElementById("score").innerText = "ABATES: " + player.score;
+  document.getElementById("score").innerText = "SCORE: " + player.score;
 
-  if (player.hp <= 0) {
-    player.hp = 100;
-    player.score = 0;
-    player.x = canvas.width / 2;
-    player.y = canvas.height / 2;
-  }
+  if (player.hp <= 0) location.reload();
 }
 
-// ===== DESENHO =====
+// ===== RENDER =====
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  // Fundo
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = "#050505";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Inimigos (Vermelhos)
-  ctx.fillStyle = "red";
+  // Inimigos (Triângulos que apontam para o player)
   enemies.forEach(en => {
+    ctx.save();
+    ctx.translate(en.x, en.y);
+    ctx.rotate(Math.atan2(player.y - en.y, player.x - en.x));
+    ctx.fillStyle = "#f40";
     ctx.beginPath();
-    ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2);
+    ctx.moveTo(15, 0); ctx.lineTo(-10, -10); ctx.lineTo(-10, 10);
+    ctx.closePath();
     ctx.fill();
+    ctx.restore();
   });
 
-  // Player (Branco)
-  ctx.fillStyle = "white";
-  ctx.beginPath();
-  ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
-  ctx.fill();
+  // Player
+  ctx.fillStyle = "#fff";
+  ctx.shadowBlur = 10; ctx.shadowColor = "#0ff";
+  ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
 
-  // Tiros (Ciano)
-  ctx.fillStyle = "cyan";
-  bullets.forEach(b => {
-    ctx.fillRect(b.x, b.y, 4, 4);
-  });
+  // Balas
+  ctx.fillStyle = "#0ff";
+  bullets.forEach(b => ctx.fillRect(b.x-2, b.y-2, 4, 4));
+  
+  ctx.fillStyle = "#f90";
+  enemyBullets.forEach(eb => ctx.fillRect(eb.x-2, eb.y-2, 5, 5));
 
-  // Mira
-  ctx.strokeStyle = "rgba(0, 255, 255, 0.3)";
-  ctx.beginPath();
-  ctx.moveTo(player.x, player.y);
-  ctx.lineTo(mouse.x, mouse.y);
-  ctx.stroke();
-
-  // Fog of War Simples (Removi o complexo para garantir que você veja o jogo primeiro)
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-over"; 
-  ctx.fillStyle = "black";
-  ctx.fillRect(0,0,canvas.width, canvas.height);
-  ctx.restore();
+  // Laser de Mira do Player
+  ctx.strokeStyle = "rgba(0, 255, 255, 0.1)";
+  ctx.beginPath(); ctx.moveTo(player.x, player.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
 }
 
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
+function loop() { update(); draw(); requestAnimationFrame(loop); }
 loop();
 </script>
