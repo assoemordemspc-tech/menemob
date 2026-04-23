@@ -1,18 +1,15 @@
 <style>
   body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-  canvas { display: block; touch-action: none; }
-  #ui { 
-    position: fixed; top: 15px; left: 15px; color: #0f0; 
-    pointer-events: none; text-shadow: 2px 2px #000; 
-  }
-  .bar { width: 200px; height: 12px; background: #333; border: 1px solid #555; margin-top: 5px; }
-  #hp-fill { width: 100%; height: 100%; background: #f00; transition: width 0.2s; }
+  canvas { display: block; }
+  #ui { position: fixed; top: 15px; left: 15px; color: #f00; pointer-events: none; z-index: 10; }
+  .bar { width: 200px; height: 10px; background: #333; border: 1px solid #444; }
+  #hp-fill { width: 100%; height: 100%; background: #f00; transition: width 0.1s; }
 </style>
 
 <div id="ui">
-  <div>SISTEMA DE COMBATE ATIVO</div>
+  <div>SISTEMA DE ALERTA: INVASÃO</div>
   <div class="bar"><div id="hp-fill"></div></div>
-  <div id="score" style="margin-top:5px">ABATES: 0</div>
+  <div id="sc" style="color: #0ff; margin-top: 5px;">DATA: 0</div>
 </div>
 <canvas id="game"></canvas>
 
@@ -28,167 +25,136 @@ window.addEventListener("resize", resize);
 resize();
 
 // ===== ESTADO =====
-let player = {
-  x: window.innerWidth / 2,
-  y: window.innerHeight / 2,
-  speed: 5,
-  radius: 10,
-  hp: 100,
-  score: 0
-};
-
+let player = { x: window.innerWidth/2, y: window.innerHeight/2, speed: 5, radius: 10, hp: 100, score: 0 };
 let enemies = [];
-let pBullets = []; // Balas do Player (Ciano)
-let eBullets = []; // Balas do Inimigo (Amarelo)
+let pBullets = []; 
+let eBullets = []; 
+let hitFlash = 0; // Feedback de dano
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
 let pCooldown = 0;
 
-// ===== INPUTS =====
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 window.onmousemove = e => { mouse.x = e.clientX; mouse.y = e.clientY; };
 window.onmousedown = () => mouse.down = true;
 window.onmouseup = () => mouse.down = false;
 
-// ===== IA SENTINELA =====
-function spawnEnemy() {
-  if (enemies.length < 8) {
+function spawn() {
+  if (enemies.length < 6) {
     enemies.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      speed: 2,
-      hp: 30,
-      radius: 12,
-      shootTimer: 60 + Math.random() * 60, // Tempo aleatório para o primeiro tiro
-      sideMove: Math.random() > 0.5 ? 1 : -1
+      hp: 30, radius: 12, speed: 1.8, cooldown: 30 // TESTE EXTREMO: Tiros rápidos
     });
   }
 }
-setInterval(spawnEnemy, 2000);
+setInterval(spawn, 2000);
 
-// ===== LÓGICA PRINCIPAL =====
 function update() {
-  // 1. Movimento WASD
+  // Movimento
   if (keys['w']) player.y -= player.speed;
   if (keys['s']) player.y += player.speed;
   if (keys['a']) player.x -= player.speed;
   if (keys['d']) player.x += player.speed;
 
-  // 2. Tiro do Player (Segurando Mouse)
+  // Tiro Player
   pCooldown--;
   if (mouse.down && pCooldown <= 0) {
-    let angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    pBullets.push({
-      x: player.x, y: player.y,
-      vx: Math.cos(angle) * 12,
-      vy: Math.sin(angle) * 12,
-      life: 60
-    });
-    pCooldown = 8; // Velocidade de tiro rápida
+    let ang = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    pBullets.push({ x: player.x, y: player.y, vx: Math.cos(ang)*12, vy: Math.sin(ang)*12, life: 60 });
+    pCooldown = 10;
   }
 
-  // 3. IA dos Inimigos
+  // IA Agressiva
   enemies.forEach(en => {
     let dx = player.x - en.x;
     let dy = player.y - en.y;
     let dist = Math.sqrt(dx*dx + dy*dy);
-    let angle = Math.atan2(dy, dx);
+    let ang = Math.atan2(dy, dx);
 
-    // Kiting: Mantém distância de 250px
-    if (dist > 300) {
-      en.x += Math.cos(angle) * en.speed;
-      en.y += Math.sin(angle) * en.speed;
-    } else if (dist < 200) {
-      en.x -= Math.cos(angle) * en.speed;
-      en.y -= Math.sin(angle) * en.speed;
-    }
-    
-    // Desvio lateral (Orbitar o player)
-    en.x += Math.cos(angle + Math.PI/2) * en.speed * en.sideMove;
-    en.y += Math.sin(angle + Math.PI/2) * en.speed * en.sideMove;
-    if(Math.random() < 0.01) en.sideMove *= -1;
+    // Kiting
+    if (dist > 250) { en.x += Math.cos(ang)*en.speed; en.y += Math.sin(ang)*en.speed; }
+    else if (dist < 150) { en.x -= Math.cos(ang)*en.speed; en.y -= Math.sin(ang)*en.speed; }
 
-    // ATAQUE: Inimigo atira
-    en.shootTimer--;
-    if (en.shootTimer <= 0 && dist < 700) {
+    // TIRO INIMIGO (CORRIGIDO)
+    en.cooldown--;
+    if (en.cooldown <= 0) {
       eBullets.push({
         x: en.x, y: en.y,
-        vx: Math.cos(angle) * 6,
-        vy: Math.sin(angle) * 6,
-        life: 150
+        vx: Math.cos(ang) * 10, // TESTE EXTREMO: Balas velozes
+        vy: Math.sin(ang) * 10,
+        life: 100
       });
-      en.shootTimer = 100; // Tempo entre tiros do inimigo
+      en.cooldown = 30; // Metralhadora
     }
   });
 
-  // 4. Colisões e Balas
-  pBullets.forEach(b => {
-    b.x += b.vx; b.y += b.vy; b.life--;
+  // Colisões
+  eBullets.forEach(eb => {
+    eb.x += eb.vx; eb.y += eb.vy; eb.life--;
+    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius) {
+      player.hp -= 5;
+      eb.life = 0;
+      hitFlash = 5; // Ativa o flash vermelho
+    }
+  });
+
+  pBullets.forEach(pb => {
+    pb.x += pb.vx; pb.y += pb.vy; pb.life--;
     enemies.forEach(en => {
-      if (Math.hypot(b.x - en.x, b.y - en.y) < en.radius + 5) {
-        en.hp -= 10; b.life = 0;
-        if (en.hp <= 0) player.score += 100;
+      if (Math.hypot(pb.x - en.x, pb.y - en.y) < en.radius) {
+        en.hp -= 10; pb.life = 0;
+        if(en.hp <= 0) player.score += 100;
       }
     });
   });
 
-  eBullets.forEach(eb => {
-    eb.x += eb.vx; eb.y += eb.vy; eb.life--;
-    if (Math.hypot(eb.x - player.x, eb.y - player.y) < player.radius + 3) {
-      player.hp -= 10; eb.life = 0;
-    }
-  });
-
-  // Limpeza
-  pBullets = pBullets.filter(b => b.life > 0);
   eBullets = eBullets.filter(eb => eb.life > 0);
+  pBullets = pBullets.filter(pb => pb.life > 0);
   enemies = enemies.filter(en => en.hp > 0);
 
-  // UI
   document.getElementById("hp-fill").style.width = player.hp + "%";
-  document.getElementById("score").innerText = "ABATES: " + player.score;
-
-  if (player.hp <= 0) {
-    alert("MORTE CONFIRMADA. SCORE: " + player.score);
-    location.reload();
-  }
+  document.getElementById("sc").innerText = "DATA_SCORE: " + player.score;
+  if(player.hp <= 0) location.reload();
 }
 
-// ===== RENDER =====
 function draw() {
-  ctx.fillStyle = "#0a0a0a";
+  ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Grid
-  ctx.strokeStyle = "#111";
-  for(let i=0; i<canvas.width; i+=50){
-    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+  // Efeito de Dano (Hit Flash)
+  if (hitFlash > 0) {
+    ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    hitFlash--;
   }
 
-  // Inimigos (Vermelho vibrante)
-  enemies.forEach(en => {
-    ctx.fillStyle = "#ff3300";
-    ctx.beginPath(); ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2); ctx.fill();
-    // Vida do inimigo
-    ctx.fillStyle = "#000"; ctx.fillRect(en.x-10, en.y-18, 20, 3);
-    ctx.fillStyle = "#f00"; ctx.fillRect(en.x-10, en.y-18, (en.hp/30)*20, 3);
+  // Desenhar Balas Inimigas (O FIX REAL)
+  ctx.save();
+  ctx.fillStyle = "orange";
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = "orange";
+  eBullets.forEach(eb => {
+    ctx.beginPath();
+    ctx.arc(eb.x, eb.y, 5, 0, Math.PI * 2);
+    ctx.fill();
   });
+  ctx.restore();
 
-  // Player (Branco com brilho)
-  ctx.fillStyle = "#fff";
+  // Desenhar Player
+  ctx.fillStyle = "white";
   ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2); ctx.fill();
 
-  // Balas
-  ctx.fillStyle = "#0ff"; // Player
-  pBullets.forEach(b => ctx.fillRect(b.x-2, b.y-2, 4, 4));
-  
-  ctx.fillStyle = "#ff0"; // Inimigo
-  eBullets.forEach(eb => ctx.beginPath() || ctx.arc(eb.x, eb.y, 3, 0, Math.PI*2) || ctx.fill());
+  // Desenhar Inimigos
+  ctx.fillStyle = "red";
+  enemies.forEach(en => {
+    ctx.beginPath(); ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2); ctx.fill();
+  });
 
-  // Mira
-  ctx.strokeStyle = "rgba(0, 255, 255, 0.2)";
-  ctx.beginPath(); ctx.moveTo(player.x, player.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
+  // Balas Player
+  ctx.fillStyle = "#0ff";
+  pBullets.forEach(pb => ctx.fillRect(pb.x-2, pb.y-2, 4, 4));
 }
 
 function loop() { update(); draw(); requestAnimationFrame(loop); }
