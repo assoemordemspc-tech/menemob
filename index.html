@@ -1,15 +1,15 @@
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
-  canvas { display: block; background: #000; }
-  #ui { position: fixed; top: 15px; left: 15px; color: #0f0; pointer-events: none; z-index: 10; }
-  .bar { width: 200px; height: 10px; background: #333; }
+  body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+  #ui { position: fixed; top: 15px; left: 15px; color: #0f0; pointer-events: none; }
+  .bar { width: 200px; height: 12px; background: #333; border: 1px solid #555; }
   #hp-fill { width: 100%; height: 100%; background: #f00; }
 </style>
 
 <div id="ui">
-  <div>SISTEMA DE TESTE: BALAS</div>
+  <div>SISTEMA DE DEFESA</div>
   <div class="bar"><div id="hp-fill"></div></div>
-  <div id="sc">SCORE: 0</div>
+  <div id="status">STATUS: ONLINE</div>
 </div>
 <canvas id="game"></canvas>
 
@@ -24,10 +24,10 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-let player = { x: window.innerWidth/2, y: window.innerHeight/2, speed: 5, radius: 10, hp: 100, score: 0 };
+// ===== ESTADO DO MUNDO =====
+let player = { x: 400, y: 300, hp: 100, radius: 12, speed: 5 };
 let enemies = [];
-let pBullets = []; 
-let eBullets = []; 
+let bullets = []; // VAMOS USAR APENAS UM ARRAY PARA TODAS AS BALAS
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
 let pCooldown = 0;
@@ -38,108 +38,134 @@ window.onmousemove = e => { mouse.x = e.clientX; mouse.y = e.clientY; };
 window.onmousedown = () => mouse.down = true;
 window.onmouseup = () => mouse.down = false;
 
+// Spawn de Inimigos
 function spawn() {
   if (enemies.length < 5) {
     enemies.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      hp: 30, radius: 12, speed: 2, cooldown: 40 // Inimigo atira rápido
+      hp: 30,
+      radius: 15,
+      cooldown: 50,
+      speed: 2
     });
   }
 }
 setInterval(spawn, 2000);
 
 function update() {
-  // 1. Movimento WASD
+  // 1. Movimento Player
   if (keys['w']) player.y -= player.speed;
   if (keys['s']) player.y += player.speed;
   if (keys['a']) player.x -= player.speed;
   if (keys['d']) player.x += player.speed;
 
-  // 2. Tiro Player
+  // 2. Tiro do Player
   pCooldown--;
   if (mouse.down && pCooldown <= 0) {
     let ang = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    pBullets.push({ x: player.x, y: player.y, vx: Math.cos(ang)*10, vy: Math.sin(ang)*10, life: 100 });
+    bullets.push({
+      x: player.x, y: player.y,
+      vx: Math.cos(ang) * 10, vy: Math.sin(ang) * 10,
+      type: 'player', color: '#0ff', radius: 4
+    });
     pCooldown = 10;
   }
 
-  // 3. IA e Tiro Inimigo
+  // 3. IA e Tiro do Inimigo
   enemies.forEach(en => {
     let dx = player.x - en.x;
     let dy = player.y - en.y;
     let dist = Math.sqrt(dx*dx + dy*dy);
     let ang = Math.atan2(dy, dx);
 
-    // Movimento
-    if(dist > 200) { en.x += Math.cos(ang)*en.speed; en.y += Math.sin(ang)*en.speed; }
+    // Se move em direção ao player até 250px
+    if (dist > 250) {
+      en.x += Math.cos(ang) * en.speed;
+      en.y += Math.sin(ang) * en.speed;
+    }
 
+    // DISPARO DO INIMIGO
     en.cooldown--;
     if (en.cooldown <= 0) {
-      // CRÍTICO: Criando a bala laranja
-      eBullets.push({ x: en.x, y: en.y, vx: Math.cos(ang)*7, vy: Math.sin(ang)*7, life: 100 });
-      en.cooldown = 40; 
+      bullets.push({
+        x: en.x, y: en.y,
+        vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6,
+        type: 'enemy', color: '#ff0', radius: 6 // BALA AMARELA GRANDE
+      });
+      en.cooldown = 60; // Atira a cada 1 segundo aprox.
     }
   });
 
-  // 4. Mover Balas
-  pBullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
-  eBullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
+  // 4. Lógica de todas as Balas (Movimento e Colisão)
+  bullets.forEach((b, index) => {
+    b.x += b.vx;
+    b.y += b.vy;
 
-  // 5. Colisão Simples
-  eBullets.forEach(b => {
-    if(Math.hypot(b.x - player.x, b.y - player.y) < player.radius) { player.hp -= 2; b.life = 0; }
-  });
-  pBullets.forEach(b => {
-    enemies.forEach(en => {
-      if(Math.hypot(b.x - en.x, b.y - en.y) < en.radius) { en.hp -= 10; b.life = 0; if(en.hp<=0) player.score += 50; }
-    });
+    // Se a bala sair da tela, remove
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets.splice(index, 1);
+      return;
+    }
+
+    // Colisão Bala de Inimigo -> Player
+    if (b.type === 'enemy') {
+      let d = Math.hypot(player.x - b.x, player.y - b.y);
+      if (d < player.radius + b.radius) {
+        player.hp -= 10; // DANO DA BALA
+        bullets.splice(index, 1);
+      }
+    }
+
+    // Colisão Bala de Player -> Inimigos
+    if (b.type === 'player') {
+      enemies.forEach((en, eIndex) => {
+        let d = Math.hypot(en.x - b.x, en.y - b.y);
+        if (d < en.radius + b.radius) {
+          en.hp -= 10;
+          bullets.splice(index, 1);
+        }
+      });
+    }
   });
 
-  pBullets = pBullets.filter(b => b.life > 0);
-  eBullets = eBullets.filter(b => b.life > 0);
+  // 5. Limpeza de Inimigos Mortos
   enemies = enemies.filter(en => en.hp > 0);
+
+  // Atualiza UI
   document.getElementById("hp-fill").style.width = player.hp + "%";
+  if (player.hp <= 0) {
+    alert("SISTEMA DESTRUÍDO");
+    location.reload();
+  }
 }
 
 function draw() {
-  // Limpeza total a cada frame
+  // Fundo Limpo
   ctx.fillStyle = "black";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // DESENHAR BALAS PLAYER (CIANO)
-  ctx.fillStyle = "#0ff";
-  pBullets.forEach(b => {
+  // DESENHAR TODAS AS BALAS (LOOP ÚNICO)
+  bullets.forEach(b => {
+    ctx.fillStyle = b.color;
     ctx.beginPath();
-    ctx.arc(b.x, b.y, 4, 0, Math.PI*2);
+    ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.closePath();
   });
 
-  // DESENHAR BALAS INIMIGO (LARANJA)
-  ctx.fillStyle = "#f90";
-  eBullets.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
-    ctx.fill();
-    ctx.closePath();
-  });
-
-  // DESENHAR INIMIGOS (VERMELHO)
+  // DESENHAR INIMIGOS
   ctx.fillStyle = "red";
   enemies.forEach(en => {
     ctx.beginPath();
-    ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2);
+    ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.closePath();
   });
 
-  // DESENHAR PLAYER (BRANCO)
+  // DESENHAR PLAYER
   ctx.fillStyle = "white";
   ctx.beginPath();
-  ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.closePath();
 }
 
 function loop() {
